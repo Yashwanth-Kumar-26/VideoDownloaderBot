@@ -1,0 +1,14 @@
+[Unit]
+Description=Telegram Downloader Bot
+After=network.target
+
+[Service]
+Type=simple
+User=siddu
+WorkingDirectory=/home/siddu/MyProJects/TelegramBots/Downloader
+ExecStart=/home/siddu/MyProJects/MainPython/Vir/bin/python main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

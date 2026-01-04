@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.env
+.qodo
+
+# IntelliJ / VSCode
+.idea/
+.vscode/
+*.swp
+
+# Project Logic
+downloads/
+telegram-api-data/
+logs/
+*.log
+
+# Docker
+docker-compose.override.yml
