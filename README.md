@@ -18,6 +18,7 @@ A powerful Telegram bot for downloading videos and audio from YouTube, Instagram
 | 🎮 **Inline Navigation** | Easy-to-use button-based interface |
 | 🛡️ **Error Handling** | Robust handling of invalid links and unsupported content |
 | 👥 **Referral System** | Invite friends and track referrals |
+| ⚙️ **Admin Panel** | Dedicated Admin Bot for stats, broadcasting, and user management |
 
 ##  Quick Setup 🛠️
 
@@ -34,27 +35,35 @@ A powerful Telegram bot for downloading videos and audio from YouTube, Instagram
 
 3. **Configure environment**:
    - Copy `.env.example` to `.env`
-   - Add your Telegram bot token: `BOT_TOKEN=your_token_here`
+   - Fill in the required variables:
+     ```env
+     BOT_TOKEN=your_downloader_bot_token
+     ADMIN_BOT_TOKEN=your_admin_bot_token
+     ADMIN_USER_IDS=123456789,987654321
+     ```
 
-4. **Run the bot**:
+4. **Run the bots**:
    ```bash
-   python main.py
+   python run_all.py
    ```
+   *(Or just `python main.py` / `python admin_main.py` individually)*
 
 ##  Usage Guide 📖
 
-1. **Start the bot**: Send `/start` to begin
-2. **Download content**: Tap "📥 Download"
-3. **Select platform**: Choose from available platforms
-4. **Provide URL**: Send the link you want to download
-5. **Choose format**: Select Video or MP3
-6. **Video options**: Pick your preferred resolution
-7. **Receive file**: Get your downloaded content instantly
+### 🤖 Downloader Bot
+1. **Start**: Send `/start`
+2. **Download**: Tap "📥 Download" -> Select Platform -> Send Link.
+
+### 👑 Admin Bot
+1. **Start**: Send `/start` (Must be an Admin).
+2. **Dashboard**: View live stats (Users, Downloads).
+3. **Broadcast**: Send messages to all users.
+4. **Manage Users**: Search, add/remove credits, toggle premium.
 
 ##  Requirements 📋
 
 - **Python**: 3.8 or higher
-- **Telegram Bot Token**: Obtain from [@BotFather](https://t.me/botfather)
+- **Telegram Bot Tokens**: Two tokens (one for Downloader, one for Admin)
 - **FFmpeg**: For audio processing (handled by yt-dlp)
 - **Internet Connection**: Required for downloading content
 
