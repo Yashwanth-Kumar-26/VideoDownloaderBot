@@ -1,9 +1,0 @@
-services:
-  - type: worker
-    name: telegram-downloader-bot
-    env: docker
-    dockerFilePath: ./Dockerfile
-    autoDeploy: true
-    envVars:
-      - key: PYTHONUNBUFFERED
-        value: 1
