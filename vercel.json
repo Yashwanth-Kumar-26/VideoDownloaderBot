@@ -1,31 +1,12 @@
 {
   "version": 2,
-  "framework": "python",
-  "pythonVersion": "3.11",
   "buildCommand": "pip install -r requirements.txt",
-  "env": {
-    "BOT_TOKEN": "@BOT_TOKEN",
-    "ADMIN_BOT_TOKEN": "@ADMIN_BOT_TOKEN",
-    "ADMIN_USER_IDS": "@ADMIN_USER_IDS",
-    "TELEGRAM_API_ID": "@TELEGRAM_API_ID",
-    "TELEGRAM_API_HASH": "@TELEGRAM_API_HASH",
-    "DATABASE_URL": "@DATABASE_URL",
-    "AWS_ACCESS_KEY_ID": "@AWS_ACCESS_KEY_ID",
-    "AWS_SECRET_ACCESS_KEY": "@AWS_SECRET_ACCESS_KEY",
-    "AWS_S3_BUCKET": "@AWS_S3_BUCKET",
-    "AWS_S3_REGION": "@AWS_S3_REGION",
-    "ENABLE_CREDITS": "true",
-    "ENABLE_REFERRALS": "true",
-    "FREE_DAILY_LIMIT": "10",
-    "REFERRAL_REWARD_CREDITS": "5",
-    "MAX_FILE_SIZE_MB": "50",
-    "DEFAULT_VIDEO_QUALITY": "720p",
-    "LOG_LEVEL": "INFO",
-    "WEBHOOK_URL": "@WEBHOOK_URL"
-  },
   "functions": {
     "api/webhook.py": {
       "maxDuration": 30
+    },
+    "api/health.py": {
+      "maxDuration": 10
     }
   }
 }
