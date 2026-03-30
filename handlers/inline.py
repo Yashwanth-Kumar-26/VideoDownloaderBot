@@ -1,6 +1,6 @@
 from aiogram import Router, F
 from aiogram.types import InlineQuery, InlineQueryResultArticle, InputTextMessageContent
-from database.supabase_client import db
+from database import db
 import uuid
 from urllib.parse import quote
 

@@ -4,7 +4,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from config import ADMIN_USER_IDS
-from database.supabase_client import db
+from database import db
 import asyncio
 import logging
 
@@ -24,8 +24,7 @@ async def admin_dashboard(message: Message):
 
     # Fetch stats
     try:
-        users = db.client.table("users").select("id", count="exact").execute()
-        total_users = users.count
+        total_users = await db.get_users_count()
         
         # We could add more stats here like total downloads if we had a table for it
         # downloads = db.client.table("downloads").select("id", count="exact").execute()
@@ -68,8 +67,8 @@ async def broadcast_process(message: Message, state: FSMContext, bot):
         await message.reply("❌ Broadcast cancelled.")
         return
 
-    users_data = db.client.table("users").select("id").execute().data
-    if not users_data:
+    users_ids = await db.get_all_user_ids()
+    if not users_ids:
         await message.reply("⚠️ No users found.")
         await state.clear()
         return
@@ -81,8 +80,7 @@ async def broadcast_process(message: Message, state: FSMContext, bot):
     status_msg = await message.reply(f"🚀 Starting broadcast to {total} users...")
     
     # Simple loop for now, ideally queue
-    for i, u in enumerate(users_data):
-        user_id = u['id']
+    for i, user_id in enumerate(users_ids):
         try:
             await message.copy_to(chat_id=user_id)
             count += 1

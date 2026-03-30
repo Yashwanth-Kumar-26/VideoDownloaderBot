@@ -1,13 +1,16 @@
+#!/usr/bin/env python3
+# run.py wrapper script mapping to requested python environment
 import asyncio
 import sys
 import os
-from asyncio import create_subprocess_exec, subprocess
+import subprocess
 
-# This script runs INSIDE the container
+PYTHON_EXECUTABLE = "/home/siddu/MyProJects/MainPython/Vir/bin/python"
+
 async def run_bot(script_name):
     print(f"🔄 Starting {script_name}...")
-    process = await create_subprocess_exec(
-        sys.executable, script_name,
+    process = await asyncio.create_subprocess_exec(
+        PYTHON_EXECUTABLE, script_name,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=os.environ.copy()
@@ -25,7 +28,7 @@ async def run_bot(script_name):
     )
 
 async def main():
-    print("🚀 Container Started. Launching Bots...")
+    print("🚀 Local Environment Started. Launching Bots...")
     # Run both concurrently
     await asyncio.gather(
         run_bot("main.py"),

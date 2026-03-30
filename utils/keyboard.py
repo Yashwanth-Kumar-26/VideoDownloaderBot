@@ -6,7 +6,7 @@ PLATFORM_EMOJIS = {
     "youtube": "🟥",
     "instagram": "📸",
     "twitter": "X",
-    "tiktok": "🎵",
+    "spotify": "🎧",
     "reddit": "🤖",
     "facebook": "📘"
 }
@@ -43,8 +43,9 @@ def get_download_type_menu(url):
     sid = shortener.shorten(url)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
+            InlineKeyboardButton(text="🖼 Image", callback_data=f"type:image:{sid}"),
             InlineKeyboardButton(text="🎬 Video", callback_data=f"type:video:{sid}"),
-            InlineKeyboardButton(text="🎵 Audio (MP3)", callback_data=f"type:audio:{sid}")
+            InlineKeyboardButton(text="🎵 Audio", callback_data=f"type:audio:{sid}")
         ],
         [InlineKeyboardButton(text="🔙 Back", callback_data="menu:download")]
     ])
@@ -78,6 +79,35 @@ def get_resolution_menu(resolutions, url):
     
     buttons.append([InlineKeyboardButton(text="🔙 Back", callback_data=f"type:video:{sid}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_playlist_audio_quality_menu(url, scope):
+    sid = shortener.shorten(url)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="💎 High (320kbps)", callback_data=f"pl_aqual:320:{scope}:{sid}"),
+            InlineKeyboardButton(text="🎧 Medium (192kbps)", callback_data=f"pl_aqual:192:{scope}:{sid}")
+        ],
+        [
+            InlineKeyboardButton(text="💾 Low (128kbps)", callback_data=f"pl_aqual:128:{scope}:{sid}")
+        ],
+        [InlineKeyboardButton(text="❌ Cancel", callback_data="delete")]
+    ])
+    return keyboard
+
+def get_playlist_video_quality_menu(url, scope):
+    sid = shortener.shorten(url)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🎥 1080p", callback_data=f"pl_vqual:1080p:{scope}:{sid}"),
+            InlineKeyboardButton(text="🎥 720p", callback_data=f"pl_vqual:720p:{scope}:{sid}")
+        ],
+        [
+            InlineKeyboardButton(text="🎥 480p", callback_data=f"pl_vqual:480p:{scope}:{sid}"),
+            InlineKeyboardButton(text="🎥 360p", callback_data=f"pl_vqual:360p:{scope}:{sid}")
+        ],
+        [InlineKeyboardButton(text="❌ Cancel", callback_data="delete")]
+    ])
+    return keyboard
 
 def get_back_button(callback_data="menu:main"):
     return InlineKeyboardMarkup(inline_keyboard=[

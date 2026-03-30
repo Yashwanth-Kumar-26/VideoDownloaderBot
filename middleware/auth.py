@@ -3,7 +3,7 @@ from aiogram import BaseMiddleware
 from aiogram.types import Message, CallbackQuery, TelegramObject
 from aiogram.filters import CommandStart
 
-from database.supabase_client import db
+from database import db
 
 class AuthMiddleware(BaseMiddleware):
     async def __call__(

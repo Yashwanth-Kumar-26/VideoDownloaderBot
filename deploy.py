@@ -44,6 +44,7 @@ def main():
     api_cmd = (
         f"docker run -d --name telegram-api-server "
         f"--network telegram-bot-net "
+        f"-p 8081:8081 "
         f"-e TELEGRAM_API_ID={api_id} "
         f"-e TELEGRAM_API_HASH={api_hash} "
         f"-v telegram-api-data:/var/lib/telegram-bot-api "

@@ -12,7 +12,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from database.supabase_client import db
+from database import db
 from config import ADMIN_USER_IDS
 
 ADMIN_BOT_TOKEN = os.getenv("ADMIN_BOT_TOKEN")
@@ -56,9 +56,10 @@ async def admin_dashboard(message: Message):
 
 async def show_admin_dashboard(message: Message, is_edit: bool = False):
     # Basic stats
+    # Basic stats
     try:
-        users_count = db.client.table("users").select("id", count="exact").execute().count
-        ref_count = db.client.table("referrals").select("id", count="exact").execute().count
+        users_count = await db.get_users_count()
+        ref_count = await db.get_referrals_count()
         active_status = "✅ Active"
     except Exception:
         users_count = "Error"
@@ -166,7 +167,7 @@ async def toggle_premium(callback: CallbackQuery):
     new_status = not user.get('is_premium', False)
     
     try:
-        db.client.table("users").update({"is_premium": new_status}).eq("id", int(uid)).execute()
+        await db.update_user_premium(int(uid), new_status)
         await callback.answer(f"Premium set to {new_status}")
     except Exception as e:
         await callback.answer("Error updating premium")
@@ -195,25 +196,25 @@ async def process_broadcast(message: Message, state: FSMContext):
 
     # Fetch users
     try:
-        users = db.client.table("users").select("id").execute().data
+        users_ids = await db.get_all_user_ids()
     except Exception as e:
         await message.reply(f"⚠️ Error fetching users: {e}")
         await state.clear()
         return
 
-    if not users:
+    if not users_ids:
         await message.reply("No users found.")
         await state.clear()
         return
 
-    status_msg = await message.reply(f"🚀 Sending to {len(users)} users...")
+    status_msg = await message.reply(f"🚀 Sending to {len(users_ids)} users...")
     
     count = 0
     blocked = 0
     
-    for u in users:
+    for user_id in users_ids:
         try:
-            await message.copy_to(chat_id=u['id'])
+            await message.copy_to(chat_id=user_id)
             count += 1
         except Exception:
             blocked += 1
@@ -233,9 +234,9 @@ async def process_broadcast(message: Message, state: FSMContext):
 async def show_full_stats(callback: CallbackQuery):
     try:
         # Fetch Aggregated Stats
-        total_users = db.client.table("users").select("id", count="exact", head=True).execute().count
-        total_refs = db.client.table("referrals").select("id", count="exact", head=True).execute().count
-        total_downloads = db.client.table("downloads").select("id", count="exact", head=True).execute().count
+        total_users = await db.get_users_count()
+        total_refs = await db.get_referrals_count()
+        total_downloads = await db.get_downloads_count()
         
         # Calculate total credits (might be heavy if many users, keeping it simple for now)
         # For now, just show counts
@@ -278,7 +279,19 @@ async def main():
     dp.include_router(router)
     
     logger.info(f"🚀 Admin Bot Started... Admins: {ADMIN_USER_IDS}")
-    await dp.start_polling(bot)
+    logger.info(f"🚀 Admin Bot Started... Admins: {ADMIN_USER_IDS}")
+    
+    # Init DB
+    try:
+        await db.connect()
+    except Exception as e:
+        logger.error(f"Failed to connect to DB: {e}")
+        return
+
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await db.close()
 
 if __name__ == "__main__":
     asyncio.run(main())

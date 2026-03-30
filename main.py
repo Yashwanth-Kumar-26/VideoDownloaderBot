@@ -52,11 +52,21 @@ async def main():
     # Delete webhook/drop pending updates to avoid flooding
     await bot.delete_webhook(drop_pending_updates=True)
     
+    # Initialize DB
+    from database import db
+    try:
+        await db.connect()
+    except Exception as e:
+        logger.error(f"Failed to connect to database: {e}")
+        return
+
     # Start polling
     try:
         await dp.start_polling(bot)
     except Exception as e:
         logger.error(f"Error in polling: {e}")
+    finally:
+        await db.close()
 
 if __name__ == "__main__":
     try:

@@ -1,7 +1,8 @@
 aiogram==3.17.0
 yt-dlp==2024.12.23
 python-dotenv==1.0.1
-supabase>=2.10.0
+aiosqlite>=0.20.0
 aiofiles==24.1.0
 structlog==24.4.0
 tenacity==9.0.0
+spotdl>=4.2.6

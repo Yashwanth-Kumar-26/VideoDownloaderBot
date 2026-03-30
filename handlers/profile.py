@@ -1,7 +1,7 @@
 from aiogram import Router, types
 from aiogram.types import CallbackQuery
 from utils.keyboard import get_back_button
-from database.supabase_client import db
+from database import db
 
 router = Router()
 

@@ -6,14 +6,15 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from utils.keyboard import get_platform_menu, get_download_type_menu, get_resolution_menu, get_main_menu, get_audio_quality_menu
-from utils.keyboard import get_platform_menu, get_download_type_menu, get_resolution_menu, get_main_menu, get_audio_quality_menu
+from utils.keyboard import get_playlist_audio_quality_menu, get_playlist_video_quality_menu
 from utils.helpers import extract_platform, shortener, format_size, format_duration
-from downloader import get_video_resolutions, download_video, download_audio, get_playlist_info
-from database.supabase_client import db
-from config import SUPPORTED_PLATFORMS, USE_LOCAL_API
+from downloader import get_playlist_info, download_video, download_audio, download_image
+from database import db
+from config import SUPPORTED_PLATFORMS, USE_LOCAL_API, LOG_CHANNEL_ID
 
-from config import SUPPORTED_PLATFORMS
 import logging
+import asyncio
+from aiogram.exceptions import TelegramBadRequest
 
 logger = logging.getLogger(__name__)
 
@@ -121,12 +122,16 @@ def get_playlist_menu(url: str, count: int):
     
     kb = [
         [
-            InlineKeyboardButton(text=f"🎵 Audio (Top 10)", callback_data=f"pl:audio:10:{sid}"),
-            InlineKeyboardButton(text=f"🎵 Audio (All)", callback_data=f"pl:audio:all:{sid}")
+            InlineKeyboardButton(text=f"🖼 Image (Top 10)", callback_data=f"pl:image:10:{sid}"),
+            InlineKeyboardButton(text=f"🖼 Image (All)", callback_data=f"pl:image:all:{sid}")
         ],
         [
             InlineKeyboardButton(text=f"🎬 Video (Top 10)", callback_data=f"pl:video:10:{sid}"),
             InlineKeyboardButton(text=f"🎬 Video (All)", callback_data=f"pl:video:all:{sid}")
+        ],
+        [
+            InlineKeyboardButton(text=f"🎵 Audio (Top 10)", callback_data=f"pl:audio:10:{sid}"),
+            InlineKeyboardButton(text=f"🎵 Audio (All)", callback_data=f"pl:audio:all:{sid}")
         ],
         [
              InlineKeyboardButton(text="❌ Cancel", callback_data="delete")
@@ -144,8 +149,14 @@ def generate_progress_bar(percent, length=20):
     except:
         return '░' * length
 
+import tempfile
+import shutil
+
+TEMP_ROOT = os.path.join(os.getcwd(), 'temp_data')
+os.makedirs(TEMP_ROOT, exist_ok=True)
+
 @router.callback_query(lambda c: c.data.startswith("pl:"))
-async def playlist_selected(callback: CallbackQuery, db_user: dict):
+async def playlist_type_selected(callback: CallbackQuery, db_user: dict):
     await callback.answer()
     parts = callback.data.split(":")
     dtype = parts[1] # audio/video
@@ -157,17 +168,50 @@ async def playlist_selected(callback: CallbackQuery, db_user: dict):
         await callback.message.edit_text("❌ Session expired.")
         return
 
-    # Check settings for quality preference (reuse logic?)
-    # For now, default to best/standard for playlist to avoid menu spam.
-    # Audio: 192 (or 320 if user set 320), Video: 720p (default)
-    
     settings = await db.get_settings(db_user['id'])
-    v_qual = settings.get("video_quality", "720p") # Default 720p if ask
-    if v_qual == "ask": v_qual = "720p" # Fallback for list
     
-    a_qual = settings.get("audio_quality", "192") # Default 192
-    if a_qual == "ask": a_qual = "192"
+    if dtype == "audio":
+        pref_qual = settings.get("audio_quality", "ask")
+        if pref_qual != "ask":
+            await execute_playlist_download(callback, url, "audio", pref_qual, scope, db_user)
+            return
+        await callback.message.edit_text("Select audio quality for playlist:", reply_markup=get_playlist_audio_quality_menu(url, scope))
+    elif dtype == "video":
+        pref_res = settings.get("video_quality", "ask")
+        if pref_res != "ask":
+            await execute_playlist_download(callback, url, "video", pref_res, scope, db_user)
+            return
+        await callback.message.edit_text("Select video resolution for playlist:", reply_markup=get_playlist_video_quality_menu(url, scope))
+    elif dtype == "image":
+        await execute_playlist_download(callback, url, "image", "best", scope, db_user)
 
+@router.callback_query(lambda c: c.data.startswith("pl_aqual:"))
+async def playlist_audio_quality_selected(callback: CallbackQuery, db_user: dict):
+    await callback.answer()
+    parts = callback.data.split(":")
+    quality = parts[1]
+    scope = parts[2]
+    sid = parts[3]
+    url = shortener.get_url(sid)
+    if not url:
+         await callback.message.edit_text("❌ Session expired.")
+         return
+    await execute_playlist_download(callback, url, "audio", quality, scope, db_user)
+
+@router.callback_query(lambda c: c.data.startswith("pl_vqual:"))
+async def playlist_video_quality_selected(callback: CallbackQuery, db_user: dict):
+    await callback.answer()
+    parts = callback.data.split(":")
+    res = parts[1]
+    scope = parts[2]
+    sid = parts[3]
+    url = shortener.get_url(sid)
+    if not url:
+         await callback.message.edit_text("❌ Session expired.")
+         return
+    await execute_playlist_download(callback, url, "video", res, scope, db_user)
+
+async def execute_playlist_download(callback: CallbackQuery, url: str, dtype: str, quality: str, scope: str, db_user: dict):
     await callback.message.edit_text("⏳ Fetching playlist details...")
     
     info = await get_playlist_info(url)
@@ -180,58 +224,113 @@ async def playlist_selected(callback: CallbackQuery, db_user: dict):
         entries = entries[:10]
     
     total = len(entries)
-    status_msg = callback.message # We will reuse this for progress
+    status_msg = callback.message 
     
-    await status_msg.edit_text(f"🚀 **Starting Playlist Download**\nFailed items will be skipped.\n\nType: {dtype.capitalize()}\nTotal: {total}")
+    await status_msg.edit_text(f"🚀 **Starting Playlist Download (ZIP)**\nType: {dtype.capitalize()}\nTotal: {total} items\n\n⏳ Please wait, this may take a while...")
+
+    # Create temp directory for this playlist
+    temp_dir = tempfile.mkdtemp(dir=TEMP_ROOT)
     
-    for i, entry in enumerate(entries):
-        idx = i + 1
-        video_url = entry['url']
-        title = entry.get('title', f'Item {idx}')
-        
-        try:
-             # Update status
-             await status_msg.edit_text(
-                 f"📑 **Playlist Progress: {idx}/{total}**\n"
-                 f"Current: {title}\n"
-                 f"⏬ Downloading..."
-             )
-             
-             if dtype == "audio":
-                 # We need to modify execute function to ACCEPT a message instead of callback.message
-                 # Actually, we can pass status_msg, BUT execute functions might delete it or reply to it.
-                 # Let's pass the ORIGINAL message (callback.message.reply_to_message) if possible, 
-                 # OR better: Send a NEW message for each status? No, too much spam.
-                 # Best: Send the file using `reply_audio` to the chat ID.
-                 # We need to call the download logic directly.
-                 
-                 # To reuse code, we can call execute_audio_download but it expects a Message object to edit.
-                 # If we pass status_msg, it will edit our progress message to "Downloading...", then "Sending...", then DELETE it.
-                 # If it deletes it, we lose our progress message for the NEXT item.
-                 
-                 # Solution: Create a temporary message for each item? 
-                 # "Downloading Item 1..." -> Done -> Delete.
-                 # "Downloading Item 2..." -> ...
-                 
-                 # Let's send a TEMP message for the item.
-                 temp_msg = await callback.message.answer(f"⏳ Processing: {title}...")
-                 
-                 if dtype == "audio":
-                     await execute_audio_download(temp_msg, video_url, a_qual, db_user)
-                 else:
-                     await execute_video_download(temp_msg, video_url, v_qual, db_user)
-                     
-                 # execute_ functions delete the message on success. 
-                 # If they fail, they edit it to Error. We should clean it up if it persists?
-                 # ideally execute_* should return status.
-                 
-        except Exception as e:
-            logger.error(f"Failed item {idx}: {e}")
-            await callback.message.answer(f"❌ Failed: {title}")
-            continue
+    success_count = 0
+    fail_count = 0
+    
+    try:
+        for i, entry in enumerate(entries):
+            idx = i + 1
+            video_url = entry['url']
+            title = entry.get('title', f'Item {idx}')
             
-    await callback.message.answer("✅ **Playlist Download Complete!**")
-    await status_msg.delete() # Remove the main progress header handles
+            # Simple progress update (every item)
+            await status_msg.edit_text(
+                 f"📥 **Downloading Item {idx}/{total}**\n"
+                 f"Current: {title}\n"
+                 f"✅ Success: {success_count} | ❌ Failed: {fail_count}"
+            )
+            
+            try:
+                res = None
+                if dtype == "audio":
+                    res = await download_audio(video_url, quality=quality, output_dir=temp_dir)
+                elif dtype == "video":
+                    res = await download_video(video_url, resolution=quality, output_dir=temp_dir)
+                elif dtype == "image":
+                    # Assuming download_image function exists and returns a similar dict with 'path'
+                    res = await download_image(video_url, output_dir=temp_dir)
+                
+                if res and os.path.exists(res['path']):
+                    success_count += 1
+                else:
+                    fail_count += 1
+            except Exception as e:
+                logger.error(f"Failed item {idx}: {e}")
+                fail_count += 1
+                continue
+        
+        if success_count == 0:
+             await status_msg.edit_text("❌ All items failed to download.")
+             return
+
+        await status_msg.edit_text(f"📦 **Zipping {success_count} items...**")
+        
+        # Create ZIP
+        zip_base = os.path.join(TEMP_ROOT, f"Playlist_{shortener.shorten(url)}")
+        zip_path = shutil.make_archive(zip_base, 'zip', temp_dir)
+        
+        zip_size = os.path.getsize(zip_path)
+        
+        # Check limits
+        limit_mb = 1950 if USE_LOCAL_API else 49
+        limit_bytes = limit_mb * 1024 * 1024
+        
+        if zip_size > limit_bytes:
+             await status_msg.edit_text(
+                 f"⚠️ **ZIP too large!**\n\n"
+                 f"Size: {format_size(zip_size)}\n"
+                 f"Limit: {limit_mb}MB\n\n"
+                 f"Sending unable to upload."
+             )
+             if os.path.exists(zip_path): os.remove(zip_path)
+             return
+
+        await status_msg.edit_text(f"⬆️ **Uploading ZIP ({format_size(zip_size)}) to Log Channel...**")
+        
+        # Upload
+        zip_file = FSInputFile(zip_path)
+        caption = (
+            f"🎁 **Playlist: {info.get('title', 'Unknown')}**\n"
+            f"📊 Items: {success_count} | 💾 Size: {format_size(zip_size)}"
+        )
+        
+        # 1. Upload to Log Channel
+        log_msg = await callback.message.bot.send_document(
+            chat_id=LOG_CHANNEL_ID,
+            document=zip_file,
+            caption=caption,
+            request_timeout=600
+        )
+        
+        file_id = log_msg.document.file_id
+        
+        # 2. Serve to User
+        await callback.message.reply_document(
+            document=file_id,
+            caption=caption
+        )
+        
+        # Deduct credits (1 credit per playlist? or per item? User just said 'zip it', let's charge 1 for simplified bulk or maybe 2)
+        # For fairness, let's charge 1 credit for the convenience.
+        await db.update_credits(db_user['id'], -1)
+        await status_msg.delete()
+        
+    except Exception as e:
+        logger.error(f"Playlist error: {e}")
+        await status_msg.edit_text(f"❌ Error processing playlist: {e}")
+    finally:
+        # Cleanup
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+        if 'zip_path' in locals() and os.path.exists(zip_path):
+            os.remove(zip_path)
 
 
 
@@ -269,10 +368,16 @@ async def type_selected(callback: CallbackQuery, db_user: dict):
              return
 
         if not resolutions:
-            await callback.message.edit_text("⚠️ Video streams unavailable.\n\n🔄 Switching to **Audio Mode**...", parse_mode="Markdown")
+            try:
+                await callback.message.edit_text("⚠️ Video streams unavailable.\n\n🔄 Switching to **Audio Mode**...", parse_mode="Markdown")
+            except TelegramBadRequest:
+                pass
             await asyncio.sleep(1.5)
             # Check audio preference too?
-            await callback.message.edit_text("Select audio quality:", reply_markup=get_audio_quality_menu(url))
+            try:
+                await callback.message.edit_text("Select audio quality:", reply_markup=get_audio_quality_menu(url))
+            except TelegramBadRequest:
+                pass
             return
         await callback.message.edit_text("Select resolution:", reply_markup=get_resolution_menu(resolutions, url))
     elif dtype == "audio":
@@ -286,6 +391,9 @@ async def type_selected(callback: CallbackQuery, db_user: dict):
 
         # Show quality menu instead of instant download
         await callback.message.edit_text("Select audio quality:", reply_markup=get_audio_quality_menu(url))
+        
+    elif dtype == "image":
+        await execute_image_download(callback.message, url, db_user)
 
 @router.callback_query(lambda c: c.data.startswith("aqual:"))
 async def audio_quality_selected(callback: CallbackQuery, db_user: dict):
@@ -354,7 +462,43 @@ async def execute_audio_download(message: Message, url: str, quality: str, db_us
         await message.edit_text(f"❌ Error: {str(e)}")
         return
     
-    if result and os.path.exists(result['path']):
+    if result and isinstance(result, list) and len(result) > 0:
+        await message.edit_text(f"📦 Zipping {len(result)} tracks from Playlist...")
+        zip_base = os.path.join(TEMP_ROOT, f"Spotify_{shortener.shorten(url)}")
+        spotdl_output_dir = os.path.dirname(result[0]['path'])
+        zip_path = shutil.make_archive(zip_base, 'zip', spotdl_output_dir)
+        zip_size = os.path.getsize(zip_path)
+        limit_mb = 1950 if USE_LOCAL_API else 49
+        limit_bytes = limit_mb * 1024 * 1024
+        
+        if zip_size > limit_bytes:
+            await message.edit_text(f"⚠️ **ZIP too large!**\nSize: {format_size(zip_size)}\nLimit: {limit_mb}MB")
+            if os.path.exists(zip_path): os.remove(zip_path)
+            return
+            
+        await message.edit_text(f"⬆️ **Uploading Spotify Playlist ZIP ({format_size(zip_size)})...**")
+        try:
+            zip_file = FSInputFile(zip_path)
+            caption = f"🎁 **Spotify Playlist**\n📊 Items: {len(result)} | 💾 Size: {format_size(zip_size)}"
+            log_msg = await message.bot.send_document(
+                chat_id=LOG_CHANNEL_ID,
+                document=zip_file,
+                caption=caption,
+                request_timeout=600
+            )
+            await message.reply_document(
+                document=log_msg.document.file_id,
+                caption=caption
+            )
+            await db.update_credits(db_user['id'], -1)
+        except Exception as e:
+            logger.error(f"ZIP Upload failed: {e}")
+            await message.edit_text("❌ Failed to upload Spotify ZIP.")
+        finally:
+            if os.path.exists(zip_path): os.remove(zip_path)
+        return
+
+    if result and not isinstance(result, list) and os.path.exists(result['path']):
         # Determine limit based on API mode
         limit_mb = 1950 if USE_LOCAL_API else 49
         limit_bytes = limit_mb * 1024 * 1024
@@ -376,7 +520,7 @@ async def execute_audio_download(message: Message, url: str, quality: str, db_us
         file_path = result['path']
         thumb_path = result.get('thumb')
         try:
-            logger.info("DEBUG: Attempting to upload audio to Telegram...")
+            logger.info("DEBUG: Attempting to upload audio to Log Channel...")
             
             thumb = FSInputFile(thumb_path) if thumb_path and os.path.exists(thumb_path) else None
             audio_file = FSInputFile(file_path)
@@ -385,31 +529,38 @@ async def execute_audio_download(message: Message, url: str, quality: str, db_us
                 f"🎧 <b>{result.get('title', 'Audio')}</b>\n"
                 f"⏱ {format_duration(result.get('duration', 0))} | 💾 {format_size(result.get('size', 0))}"
             )
-
-            # Increased timeout to 5 minutes (300s)
-            msg = await message.reply_audio(
-                audio_file, 
+            
+            # 1. Upload to Log Channel
+            log_msg = await message.bot.send_audio(
+                chat_id=LOG_CHANNEL_ID,
+                audio=audio_file,
                 thumbnail=thumb,
                 title=result.get('title', 'Audio'),
-                performer=shortener.get_url(shortener.shorten(url)), # Re-shorten for display logic? Or pass sid? 
-                duration=result.get('duration', 0),
+                performer=shortener.get_url(shortener.shorten(url)),
+                duration=int(result.get('duration', 0)),
                 caption=caption,
                 parse_mode="HTML",
                 request_timeout=300
             )
             
-            # Save to Cache
-            if msg.document:
-                await db.save_cached_file(url, variant, msg.document.file_id)
-            elif msg.audio:
-                await db.save_cached_file(url, variant, msg.audio.file_id)
+            file_id = log_msg.audio.file_id
+            
+            # 2. Save Cache (Using file_id from Log Channel)
+            await db.save_cached_file(url, variant, file_id)
+            
+            # 3. Send to User using File ID (Zero Bandwidth)
+            await message.reply_audio(
+                audio=file_id, 
+                caption=caption,
+                parse_mode="HTML"
+            )
 
             # Log and deduct
-            await db.log_download(db_user['id'], url, "unknown", "audio", f"mp3-{quality}", result['size'])
+            await db.log_download(db_user['id'], url, "new", "audio", f"mp3-{quality}", result['size'])
             await db.update_credits(db_user['id'], -1)
             await message.delete()
         except Exception as e:
-             await message.edit_text(f"❌ Failed to send file. It might be too large.\nError: {e}")
+             await message.edit_text(f"❌ Failed to process file.\nError: {e}")
         finally:
              if os.path.exists(file_path):
                  os.remove(file_path)
@@ -449,8 +600,6 @@ async def execute_video_download(message: Message, url: str, res: str, db_user: 
         except Exception:
              pass
 
-    await message.edit_text(f"⏳ Downloading video ({res})... please wait.")
-    
     await message.edit_text(f"⏳ Downloading video ({res})... please wait.")
     
     last_update_time = 0
@@ -522,7 +671,7 @@ async def execute_video_download(message: Message, url: str, res: str, db_user: 
         file_path = result['path']
         thumb_path = result.get('thumb')
         try:
-            logger.info("DEBUG: Attempting to upload to Telegram...")
+            logger.info("DEBUG: Attempting to upload to Log Channel...")
             
             thumb = FSInputFile(thumb_path) if thumb_path and os.path.exists(thumb_path) else None
             video_file = FSInputFile(file_path)
@@ -532,34 +681,41 @@ async def execute_video_download(message: Message, url: str, res: str, db_user: 
                 f"⏱ {format_duration(result.get('duration', 0))} | 💿 {result.get('width', 0)}x{result.get('height', 0)} | 📦 {format_size(result.get('size', 0))}"
             )
 
-            # Increased timeout to 5 minutes (300s) for large uploads
-            # Try sending as video first for streaming support
-            msg = await message.reply_video(
-                video_file,
+            # 1. Upload to Log Channel
+            log_msg = await message.bot.send_video(
+                chat_id=LOG_CHANNEL_ID,
+                video=video_file,
                 thumbnail=thumb,
-                duration=result.get('duration', 0),
-                width=result.get('width', 0),
-                height=result.get('height', 0),
+                duration=int(result.get('duration', 0)),
+                width=int(result.get('width', 0)),
+                height=int(result.get('height', 0)),
                 caption=caption,
                 parse_mode="HTML",
                 supports_streaming=True,
                 request_timeout=300
             )
 
-            logger.info("DEBUG: Upload successful.")
+            logger.info("DEBUG: Upload to Log Channel successful.")
             
-            # Save Cache
-            if msg.document:
-                await db.save_cached_file(url, variant, msg.document.file_id)
-            elif msg.video:
-                await db.save_cached_file(url, variant, msg.video.file_id)
+            file_id = log_msg.video.file_id if log_msg.video else log_msg.document.file_id
+            
+            # 2. Save Cache
+            await db.save_cached_file(url, variant, file_id)
+            
+            # 3. Send to User using File ID
+            await message.reply_video(
+                video=file_id,
+                caption=caption,
+                parse_mode="HTML",
+                supports_streaming=True
+            )
 
             # Log and deduct
-            await db.log_download(db_user['id'], url, "unknown", "video", res, result['size'])
+            await db.log_download(db_user['id'], url, "new", "video", res, result['size'])
             await db.update_credits(db_user['id'], -1)
             await message.delete()
         except Exception as e:
-             await message.edit_text(f"❌ Failed to send file. It might be too large.\nError: {e}")
+             await message.edit_text(f"❌ Failed to process file.\nError: {e}")
         finally:
              if os.path.exists(file_path):
                  os.remove(file_path)
@@ -567,3 +723,117 @@ async def execute_video_download(message: Message, url: str, res: str, db_user: 
                  os.remove(thumb_path)
     else:
         await message.edit_text("❌ Failed to download video.")
+
+async def execute_image_download(message: Message, url: str, db_user: dict):
+    variant = "image:best"
+    
+    # Check Cache
+    cached_id = await db.get_cached_file(url, variant)
+    if cached_id:
+        await message.edit_text(f"🚀 Found in Server! Sending image...")
+        try:
+             await message.reply_photo(cached_id)
+             await db.log_download(db_user['id'], url, "server", "image", "best", 0)
+             await db.update_credits(db_user['id'], -1)
+             await message.delete()
+             return
+        except Exception:
+             pass
+
+    await message.edit_text("⏳ Downloading image(s)... please wait.")
+    
+    last_update_time = 0
+
+    async def progress_handler(data):
+        nonlocal last_update_time
+        current_time = time.time()
+        
+        if current_time - last_update_time < 2 and data['percent'] != '100':
+            return
+            
+        last_update_time = current_time
+        bar = generate_progress_bar(data['percent'])
+
+        text = (
+            f"🖼 **Downloading...**\n"
+            f"`[{bar}]` **{data['percent']}%**\n\n"
+            f"🚀 **Speed:** {data['speed']}\n"
+            f"📦 **Size:** {data['current']} / {data['total']}\n"
+            f"⏳ **ETA:** {data['eta']}"
+        )
+        try:
+            await message.edit_text(text, parse_mode="Markdown")
+        except:
+             pass
+
+    try:
+        logger.info(f"DEBUG: Starting download for URL: {url} Res: image")
+        result = await download_image(url, progress_callback=progress_handler)
+        if result:
+            logger.info(f"DEBUG: Download finished. Path: {result.get('path')}")
+    except Exception as e:
+        logger.error(f"DEBUG: Download failed: {e}")
+        await message.edit_text(f"❌ Error: {str(e)}")
+        return
+    
+    if result and os.path.exists(result['path']):
+        # Determine limit based on API mode
+        limit_mb = 1950 if USE_LOCAL_API else 49
+        limit_bytes = limit_mb * 1024 * 1024
+
+        if result['size'] > limit_bytes:
+            limit_msg = "2GB" if USE_LOCAL_API else "50MB"
+            await message.edit_text(
+                f"⚠️ **File too large!**\n\n"
+                f"The image is **{format_size(result['size'])}**, but the limit is **{limit_msg}**.\n"
+            )
+            if os.path.exists(result['path']):
+                os.remove(result['path'])
+            return
+
+        file_path = result['path']
+        try:
+            logger.info("DEBUG: Attempting to upload to Log Channel...")
+            
+            photo_file = FSInputFile(file_path)
+            
+            caption = (
+                f"🖼 <b>{result.get('title', 'Image')}</b>\n"
+                f"📦 {format_size(result.get('size', 0))}"
+            )
+
+            # 1. Upload to Log Channel
+            log_msg = await message.bot.send_photo(
+                chat_id=LOG_CHANNEL_ID,
+                photo=photo_file,
+                caption=caption,
+                parse_mode="HTML",
+                request_timeout=300
+            )
+
+            logger.info("DEBUG: Upload to Log Channel successful.")
+            
+            # For photos, telegram returns an array of different sizes. The last item is the largest.
+            file_id = log_msg.photo[-1].file_id
+            
+            # 2. Save Cache
+            await db.save_cached_file(url, variant, file_id)
+            
+            # 3. Send to User using File ID
+            await message.reply_photo(
+                photo=file_id,
+                caption=caption,
+                parse_mode="HTML"
+            )
+
+            # Log and deduct
+            await db.log_download(db_user['id'], url, "new", "image", "best", result['size'])
+            await db.update_credits(db_user['id'], -1)
+            await message.delete()
+        except Exception as e:
+             await message.edit_text(f"❌ Failed to process file.\nError: {e}")
+        finally:
+             if os.path.exists(file_path):
+                 os.remove(file_path)
+    else:
+        await message.edit_text("❌ Failed to download image.")

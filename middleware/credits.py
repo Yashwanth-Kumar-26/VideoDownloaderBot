@@ -3,7 +3,7 @@ from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, TelegramObject
 
 from config import ENABLE_CREDITS, ADMIN_USER_IDS
-from database.supabase_client import db
+from database import db
 
 class CreditsMiddleware(BaseMiddleware):
     async def __call__(

@@ -50,8 +50,8 @@ def extract_platform(url):
         return 'twitter'
     elif 'reddit.com' in domain:
         return 'reddit'
-    elif 'tiktok.com' in domain:
-        return 'tiktok'
+    elif 'spotify.com' in domain:
+        return 'spotify'
     elif 'facebook.com' in domain or 'fb.watch' in domain:
         return 'facebook'
     return None
