@@ -44,3 +44,34 @@ DOWNLOAD_TYPES = ['video', 'audio']
 
 # Logging
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
+
+# ========== VERCEL DEPLOYMENT CONFIGURATION ==========
+
+# Database Configuration (PostgreSQL for Vercel)
+DATABASE_URL = os.getenv('DATABASE_URL')
+# If using local development, SQLite can still be used as fallback
+
+# AWS S3 Configuration (for file storage on Vercel)
+AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+AWS_S3_BUCKET = os.getenv('AWS_S3_BUCKET')
+AWS_S3_REGION = os.getenv('AWS_S3_REGION', 'us-east-1')
+
+# Determine if running on Vercel/serverless
+IS_VERCEL = os.getenv('VERCEL') == '1'
+WEBHOOK_URL = os.getenv('WEBHOOK_URL')
+
+# For Vercel webhook
+if IS_VERCEL:
+    print("🔵 Running on Vercel (serverless environment)")
+    if not DATABASE_URL:
+        print("⚠️  WARNING: DATABASE_URL not set. Using SQLite for local testing only.")
+else:
+    print("🟢 Running on local/traditional environment")
+
+# Log storage configuration
+HAS_S3 = bool(AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY and AWS_S3_BUCKET)
+if HAS_S3:
+    print(f"📦 S3 Storage enabled: s3://{AWS_S3_BUCKET}/")
+else:
+    print("📁 Using local file storage (not recommended for Vercel)")

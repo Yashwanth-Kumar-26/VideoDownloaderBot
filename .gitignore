@@ -21,3 +21,5 @@ logs/
 
 # Docker
 docker-compose.override.yml
+
+temp_data /
