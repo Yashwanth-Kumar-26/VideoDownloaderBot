@@ -16,9 +16,9 @@ alembic>=1.12.0
 boto3>=1.26.0
 botocore>=1.29.0
 
-# Web framework for health checks
+# Web framework (FastAPI with compatible uvicorn for spotdl)
 fastapi==0.104.1
-uvicorn==0.24.0
+uvicorn>=0.23.2,<0.24.0
 
 # Utilities
 aiohttp>=3.9.0
